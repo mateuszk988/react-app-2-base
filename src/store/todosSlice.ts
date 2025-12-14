@@ -1,10 +1,13 @@
 import {
   createAsyncThunk,
   createEntityAdapter,
+  createSelector,
   createSlice,
   PayloadAction,
 } from '@reduxjs/toolkit';
 import { client } from 'api/client';
+import { RootState } from './store';
+import { statusFilters } from './filtersSlice';
 export interface Todo {
   id: string;
   text: string;
@@ -95,5 +98,90 @@ const todosSlice = createSlice({
         };
       },
     },
+    todoDeleted: todosAdapter.removeOne, // todoDeleted(id)
+    allTodosCompleted: (state) => {
+      Object.values(state.entities).forEach((todo) => {
+        if (todo) {
+          todo.completed = true;
+        }
+      });
+    },
+    completedTodosCleared: (state) => {
+      // W completedIds będzie lista ids elementów, które mają todo.completed === true
+      const completedIds = Object.values(state.entities)
+        .filter((todo) => todo.completed)
+        .map((todo) => todo.id);
+      // Używamy wbudowanej w adapter metody .removeMany celem usunięcia wielu encji ze stora
+      todosAdapter.removeMany(state, completedIds);
+    },
+  },
+  // extraReducers umożliwia obsługę akcji nieopisanych w sekcji 'reducers'
+  // (najczęściej asynchronicznych, stworzonych np. przez createAsyncThunk)
+  // Dzięki temu możemy reagować na stany pending, fulfilled i rejected w pracy z API backendowym
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchTodos.pending, (state) => {
+        state.status = 'loading';
+      })
+      .addCase(fetchTodos.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        todosAdapter.setAll(state, action.payload);
+      })
+      .addCase(fetchTodos.rejected, (state) => {
+        state.status = 'failed';
+      })
+      .addCase(saveNewTodo.fulfilled, todosAdapter.addOne);
   },
 });
+
+export const {
+  allTodosCompleted,
+  completedTodosCleared,
+  todoColorSelected,
+  todoDeleted,
+  todoToggled,
+} = todosSlice.actions;
+
+export default todosSlice.reducer;
+
+// Selektory - umożliwiają nam "wyciąganie" danych ze stora w wygodny sposób
+// 1 sposób - wykorzystujemy adapter
+export const { selectAll: selectTodos, selectById: selectTodoById } = todosAdapter.getSelectors(
+  (state: RootState) => state.todos
+);
+
+// 2 sposób - "na piechotę", bez wykorzystywania adaptera
+// Jak zrobić to samo, ale bez wykorzystania adaptera
+// export const selectTodos = (state: RootState) => {
+//   const { ids, entities } = state.todos;
+//   return ids.map((id) => entities[id]);
+// };
+
+// export const selectTodoById = (state: RootState, todoId: string) => {
+//   return state.todos.entities[todoId];
+// };
+
+// selektor, który zwraca nam idki elementów, które spełniają oba kryteria:
+// a) są w określonym statusie (all lub completed lub active)
+// b) pasują do filtru z kolorami
+
+export const selectFilteredTodoIds = createSelector(
+  // 1. pobieramy listę WSZYSTKICH elementów (todos)
+  selectTodos,
+  // 2. pobieramy cały obiekt filtrów (status i colors)
+  (state: RootState) => state.filters,
+  // 3. zwracamy przefiltrowane ID zadań
+  (todos, { status, colors }) => {
+    const isAllStatusSelected = status === statusFilters.All; // true, jeżeli wybrany jest status 'All'
+    const isCompletedStatusSelected = status === statusFilters.Completed; // true, jeżeli wybrany jest status 'Completed'
+
+    return todos
+      .filter((todo) => {
+        const isStatusMatched = isAllStatusSelected || todo.completed === isCompletedStatusSelected;
+        const isColorMatched = !colors.length || colors.includes(todo.color);
+
+        return isStatusMatched && isColorMatched;
+      })
+      .map((todo) => todo.id);
+  }
+);
