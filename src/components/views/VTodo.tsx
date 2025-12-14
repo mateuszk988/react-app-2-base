@@ -2,12 +2,14 @@ import React from 'react';
 
 import OItemInput from '@organisms/OItemInput/OItemInput';
 import TActivity from '@templates/TActivity';
+import OFilters from '@organisms/OFilters/OFilters';
 
 const VTodo: React.FC = () => (
   <TActivity
     content={
       <>
         <OItemInput />
+        <OFilters />
       </>
     }
   />
